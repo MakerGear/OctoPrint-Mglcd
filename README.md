@@ -1,6 +1,6 @@
-# OctoPrint-Nextion
+# OctoPrint-Mglcd
 
-**TODO:** Describe what your plugin does.
+An OctoPrint plugin for controlling a USB-serial LCD; currently configured for a Nextion NX4832K035_011 display.
 
 ## Setup
 
@@ -9,9 +9,4 @@ or manually using this URL:
 
     https://github.com/MakerGear/OctoPrint-Mglcd/archive/master.zip
 
-**TODO:** Describe how to install your plugin, if more needs to be done than just installing it via pip or through
-the plugin manager.
-
-## Configuration
-
-**TODO:** Describe your plugin's configuration options (if any).
+Uses the Pynextion Python library (https://github.com/raffmont/pynextion ) and the Nextion firmware flasher from (https://github.com/g4klx/MMDVMHost/blob/master/Nextion_G4KLX/nextion.py ).
