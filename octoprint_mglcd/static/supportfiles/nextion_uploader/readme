@@ -1,0 +1,7 @@
+Uses the nextion.py file from this project: https://github.com/g4klx/MMDVMHost/tree/master/Nextion_G4KLX
+
+Usage:
+
+python nextion.py [FILE].tft /dev/ttyUSB0
+
+If LCD shows failure after uploading, unplug, plugin and try again - have only seen one failure, which was then resolved by uploading again, so far.
