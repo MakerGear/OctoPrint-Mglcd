@@ -1,30 +1,3 @@
-# coding=utf-8
-from __future__ import absolute_import
-import serial
-import time
-import sys
-import threading
-import re
-import sched
-import socket
-import array
-import glob
-from numbers import Number
-from threading import Thread
-from multiprocessing import Process
-from octoprint.filemanager.destinations import FileDestinations
-from collections import deque
-from collections import defaultdict
-import octoprint.filemanager
-import octoprint.filemanager.util
-import octoprint.filemanager.storage
-import octoprint.slicing
-from octoprint.server import printer, fileManager, slicingManager, eventManager, NO_CONTENT
-
-
-### (Don't forget to remove me)
-# This is a basic skeleton for your plugin's __init__.py. You probably want to adjust the class name of your plugin
-# as well as the plugin mixins it's subclassing from. This is really just a basic skeleton# coding=utf-8
 from __future__ import absolute_import
 import serial
 import time
