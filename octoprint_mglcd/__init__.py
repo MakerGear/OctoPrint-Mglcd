@@ -439,6 +439,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.files = {}
 		self.fileList = defaultdict(list)
 		self.currentFolder = ''
+		self.currentPath = ''
 		self.previousFolderList = []
 		self.filamentInFile = 0.0
 		self.fileListLocation = 0
@@ -446,6 +447,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.flashingFirmware = False
 		self.firmwareFlashingProgram = ""
 		self.firmwareLocation = ""
+		self.buttonPressCount = 0
 	
 	def serial_ports(self):
 		# With all credit to SO Thomas.
@@ -780,20 +782,31 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		else:
 			return longName
 
+
+	def navigateFolderUp(self):
+		try:
+			tempPath = self.currentPath.split("/")
+			tempPath.pop()
+			self.currentPath = "/".join(tempPath)
+
+		except Exception as e:
+			self._logger.info("Error when trying to navigate up: "+str(e))
+
+
 	def populatePrintList(self):
-		self.files = self._file_manager.list_files(path=self.currentFolder)
+		self.files = self._file_manager.list_files(path=self.currentPath)
 		# for i in range(0, len(self.files)):
 		i = 0
 		tempFileList = defaultdict(list)
 		tempFolderList = defaultdict(list)
 		navigateUpList = defaultdict(list)
 		self.fileList = defaultdict(list)
-		if self.currentFolder != '':
-			self._logger.info("previousFolderList:")
-			self._logger.info(self.previousFolderList)
+		if self.currentPath != '':
+			# self._logger.info("previousFolderList:")
+			# self._logger.info(self.previousFolderList)
 			self.fileList[0] = [
 								{'name' : 'up' },
-								{'path' : self.previousFolderList[-1] },
+								{'path' : '' },
 								{'shortName' : '..' },
 								{'type' : 'folder' }
 							]
@@ -1114,8 +1127,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		line = line.rstrip()
 		# line = lineRaw
 		# self._logger.info(line)
-		self._logger.info("previousFolderList:")
-		self._logger.info(self.previousFolderList)
+		# self._logger.info("previousFolderList:")
+		# self._logger.info(self.previousFolderList)
 		if "MAKERGEAR" in str(line):
 			self._logger.info("Handshake received.")
 			self.handshakeReceived()
@@ -1151,6 +1164,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 		if "button" in line:
+			# self.buttonPressCount += 1
+			# self._logger.info("Button press count: "+str(self.buttonPressCount))
 			# if line == "button x negative":
 			# 	self._printer.jog(dict(x=-10), speed=2000)
 			# if line == "button x positive":
@@ -1244,6 +1259,9 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			# 	self._printer.extrude(5)
 
 			if line == "button file page":
+				self.fileListLocation = 0
+				self.currentPage = 'fileList'
+				self.currentFolder = ''
 				self.populatePrintList()
 				return
 
@@ -1255,10 +1273,10 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				# self._logger.info(fileButton)
 
 				
-					if fileButton == 'page':
-						self.populatePrintList()
-						self.fileListLocation = 0
-						self.currentPage = 'fileList'
+					# if fileButton == 'page':
+					# 	self.populatePrintList()
+					# 	self.fileListLocation = 0
+					# 	self.currentPage = 'fileList'
 
 					if fileButton.isdigit():
 						# self._logger.info("fileButton isdigit")
@@ -1274,16 +1292,20 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 							# self._logger.info(self.fileList[int(fileButton)+self.fileListLocation][0]['type'])
 
 							if self.fileList[int(fileButton)+self.fileListLocation][3]['type'] == 'folder':
-								if self.fileList[int(fileButton)+self.fileListLocation][0]['name'] != 'up':
-									self.previousFolderList.append(self.currentFolder)
-									self._logger.info("previousFolderList:")
-									self._logger.info(self.previousFolderList)
-
-								self.currentFolder = self.fileList[int(fileButton)+self.fileListLocation][1]['path']
-								self.fileListLocation = 0
-								self.populatePrintList()
-								self.previousFolderList.pop()
-								self._logger.info(self.currentFolder)
+								if self.fileList[int(fileButton)+self.fileListLocation][0]['name'] == 'up':
+									self.navigateFolderUp()
+									self.populatePrintList()
+									# self.previousFolderList.append(self.currentFolder)
+									# self.previousFolderList = list(self.previousFolderList).append(self.currentFolder)
+									# self._logger.info("previousFolderList:")
+									# self._logger.info(self.previousFolderList)
+								else:
+									self.currentFolder = self.fileList[int(fileButton)+self.fileListLocation][1]['path']
+									self.currentPath = self.fileList[int(fileButton)+self.fileListLocation][1]['path']
+									self.fileListLocation = 0
+									self.populatePrintList()
+								# self.previousFolderList.pop()
+								# self._logger.info(self.currentFolder)
 
 
 
