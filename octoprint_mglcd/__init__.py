@@ -21,6 +21,11 @@ import octoprint.filemanager.util
 import octoprint.filemanager.storage
 import octoprint.slicing
 from octoprint.server import printer, fileManager, slicingManager, eventManager, NO_CONTENT
+from flask import jsonify, make_response
+import logging
+from octoprint.server import admin_permission
+
+
 
 
 ### (Don't forget to remove me)
@@ -409,7 +414,6 @@ class Nextion(object):
 		t.join()
 		return s 
 
-
 class NextionPlugin(octoprint.plugin.StartupPlugin,
 						octoprint.plugin.TemplatePlugin,
 						octoprint.plugin.SettingsPlugin,
@@ -438,17 +442,34 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.currentPage = ''
 		self.files = {}
 		self.fileList = defaultdict(list)
+		self.wifiList = defaultdict(list)
 		self.currentFolder = ''
 		self.currentPath = ''
 		self.previousFolderList = []
 		self.filamentInFile = 0.0
 		self.fileListLocation = 0
+		self.wifiListLocation = 0
 		self.connectedPort = ''
 		self.flashingFirmware = False
 		self.firmwareFlashingProgram = ""
 		self.firmwareLocation = ""
 		self.buttonPressCount = 0
+		self.address = None
 	
+	def initialize(self):
+		self.address = self._settings.get(["socket"])
+
+	@property
+	def hostname(self):
+		hostname = self._settings.get(["hostname"])
+		if hostname:
+			return hostname
+		else:
+			import socket
+			return socket.gethostname() + ".local"
+
+
+
 	def serial_ports(self):
 		# With all credit to SO Thomas.
 		""" Lists serial port names
@@ -680,11 +701,22 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self._printer.register_callback(self)
 		self.displayConnectionTimer.start()
 		self.firmwareFlashingProgram = self._basefolder+"/static/supportfiles/nextion_uploader/nextion.py"
-		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0107.tft"
+		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0108.tft"
 		# self.populatePrintList()
 
 		# self.connect_to_display()
 		# self._logger.info(octoprint.filemanager.storage.list_files(FileDestinations.LOCAL))
+		# netconnectdModule = self._plugin_manager.get_plugin("netconnectd")
+		# self._logger.info(netconnectd)
+		# netconnectd = NetconnectdSettingsPlugin.__init__()
+		# import netconnectd
+		# setattr(netconnectd, "_logger", self._logger)
+		# setattr(netconnectd, "_settings", self._settings)
+
+		# self._logger.info(netconnectd.get_api_commands())
+		# self._logger.info(netconnectd.on_api_command("refresh_wifi",""))
+		# self._logger.info(self._send_message("list_wifi",{}))
+		self.populateWifiList()
 
 	def connect_to_display(self):
 		if self.tryToConnect:
@@ -848,8 +880,52 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.showFileList()
 
 
+	def populateWifiList(self):
+		tempWifiList = self._send_message("list_wifi",{})
+		self.wifiList = defaultdict(list)
+		i = 0
+		for ssid in tempWifiList[1]:
+			self.wifiList[i] = tempWifiList[1][i]["ssid"]
+			i += 1
 
 
+		self._logger.info(self.wifiList)
+		self.showWifiList()
+
+
+	def showWifiList(self):
+		j = self.wifiListLocation
+		i = 0
+		# for fileName in self.fileList.keys():
+		# if len(self.fileList-self.fileListLocation) > 5:
+		# 	lastPos = 5
+		# else:
+		# 	lastPos = len(self.fileList-self.fileListLocation)
+		for clearPos in range (0,5):
+			self.nextionDisplay.nxWrite('wifilist.file{}.txt="{}"'.format(clearPos,('')))
+		lastPos = 5
+		for wifiCount in range(0,lastPos):
+			try:
+				# self._logger.info(fileName)
+				# self._logger.info(self.fileList[fileName])
+				# self._logger.info(self.fileList[fileName][0]['name'])
+				# fileNameString = 'files.file{}.txt="{}"'.format(i,(self.fileList[fileName][2]['shortName']))
+
+
+				wifiString = 'wifilist.file{}.txt="{}"'.format(i,(self.wifiList[wifiCount+j]))
+
+				self.nextionDisplay.nxWrite(wifiString)
+				# j += 1
+				i += 1
+				# self._logger.info(fileNameString)
+				# self._logger.info(self.fileListLocation)
+			except KeyError as e:
+				self._logger.info("Encountered key error: " + str(e))
+				break
+
+			except Exception as e:
+				self._logger.info("More general exception in showWifiList: "+str(e))
+				break
 
 
 
@@ -892,13 +968,78 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 
-
+	def on_settings_save(self, data):
+		octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
+		self.address = self._settings.get(["socket"])
 
 	def get_settings_defaults(self):
 		return dict(
-			# put your plugin's default settings here
+			socket="/var/run/netconnectd.sock",
+			hostname=None,
+			timeout=10
 		)
 
+	def get_template_configs(self):
+		return [
+			dict(type="settings", name="Network connection")
+		]
+
+
+	def get_api_commands(self):
+		return dict(
+			start_ap=[],
+			stop_ap=[],
+			refresh_wifi=[],
+			configure_wifi=[],
+			forget_wifi=[],
+			reset=[]
+		)
+	def is_api_adminonly(self):
+		return True
+
+	def on_api_get(self, request):
+		try:
+			status = self._get_status()
+			if status["wifi"]["present"]:
+				wifis = self._get_wifi_list()
+			else:
+				wifis = []
+		except Exception as e:
+			return jsonify(dict(error=str(e)))
+
+		return jsonify(dict(
+			wifis=wifis,
+			status=status,
+			hostname=self.hostname
+		))
+
+	def on_api_command(self, command, data):
+		if command == "refresh_wifi":
+			return jsonify(self._get_wifi_list(force=True))
+
+		# any commands processed after this check require admin permissions
+		if not admin_permission.can():
+			return make_response("Insufficient rights", 403)
+
+		if command == "configure_wifi":
+			if data["psk"]:
+				self._logger.info("Configuring wifi {ssid} and psk...".format(**data))
+			else:
+				self._logger.info("Configuring wifi {ssid}...".format(**data))
+
+			self._configure_and_select_wifi(data["ssid"], data["psk"], force=data["force"] if "force" in data else False)
+
+		elif command == "forget_wifi":
+			self._forget_wifi()
+
+		elif command == "reset":
+			self._reset()
+
+		elif command == "start_ap":
+			self._start_ap()
+
+		elif command == "stop_ap":
+			self._stop_ap()
 	##~~ AssetPlugin mixin
 
 	def get_assets(self):
@@ -1174,10 +1315,15 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 			splitLine = line.split(" ")
 			if splitLine[1] in ("x0", "x1", "y", "z", "t0", "t1"):
+				axis = list(splitLine[1])[0]
+				distance = float(splitLine[3])
+
 				if splitLine[2] == "negative":
 					direction = -1
-				else:
+				elif splitLine[2] == "positive":
 					direction = 1
+				elif splitLine[2] == "babystep":
+					self._printer.commands("M290 Z"+str(distance))
 
 				if splitLine[1] in ("x0", "t0"):
 					self._printer.change_tool("tool0")
@@ -1188,8 +1334,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 					self._printer.extrude(int(splitLine[2]))
 					return
 
-				axis = list(splitLine[1])[0]
-				distance = float(splitLine[3])
+
 				if axis == "x":
 					speed = 2000
 				elif axis == "y":
@@ -1263,6 +1408,12 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				self.currentPage = 'fileList'
 				self.currentFolder = ''
 				self.populatePrintList()
+				return
+
+			if line == "button wifilist":
+				self.wifiListLocation = 0
+				self.currentPage = 'wifilist'
+				self.populateWifiList()
 				return
 
 			if "button file" in line:
@@ -1454,7 +1605,114 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 			# line = self.nextionSerial.readline()
 
+	def _get_wifi_list(self, force=False):
+		payload = dict()
+		if force:
+			self._logger.info("Forcing wifi refresh...")
+			payload["force"] = True
 
+		flag, content = self._send_message("list_wifi", payload)
+		if not flag:
+			raise RuntimeError("Error while listing wifi: " + content)
+
+		result = []
+		for wifi in content:
+			result.append(dict(ssid=wifi["ssid"], address=wifi["address"], quality=wifi["signal"], encrypted=wifi["encrypted"]))
+		return result
+
+	def _get_status(self):
+		payload = dict()
+
+		flag, content = self._send_message("status", payload)
+		if not flag:
+			raise RuntimeError("Error while querying status: " + content)
+
+		return content
+
+	def _configure_and_select_wifi(self, ssid, psk, force=False):
+		payload = dict(
+			ssid=ssid,
+			psk=psk,
+			force=force
+		)
+
+		flag, content = self._send_message("config_wifi", payload)
+		if not flag:
+			raise RuntimeError("Error while configuring wifi: " + content)
+
+		flag, content = self._send_message("start_wifi", dict())
+		if not flag:
+			raise RuntimeError("Error while selecting wifi: " + content)
+
+	def _forget_wifi(self):
+		payload = dict()
+		flag, content = self._send_message("forget_wifi", payload)
+		if not flag:
+			raise RuntimeError("Error while forgetting wifi: " + content)
+
+	def _reset(self):
+		payload = dict()
+		flag, content = self._send_message("reset", payload)
+		if not flag:
+			raise RuntimeError("Error while factory resetting netconnectd: " + content)
+
+	def _start_ap(self):
+		payload = dict()
+		flag, content = self._send_message("start_ap", payload)
+		if not flag:
+			raise RuntimeError("Error while starting ap: " + content)
+
+	def _stop_ap(self):
+		payload = dict()
+		flag, content = self._send_message("stop_ap", payload)
+		if not flag:
+			raise RuntimeError("Error while stopping ap: " + content)
+
+	def _send_message(self, message, data):
+		obj = dict()
+		obj[message] = data
+
+		import json
+		js = json.dumps(obj, encoding="utf8", separators=(",", ":"))
+
+		import socket
+		sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		sock.settimeout(self._settings.get_int(["timeout"]))
+		try:
+			sock.connect(self.address)
+			sock.sendall(js + '\x00')
+
+			buffer = []
+			while True:
+				chunk = sock.recv(16)
+				if chunk:
+					buffer.append(chunk)
+					if chunk.endswith('\x00'):
+						break
+
+			data = ''.join(buffer).strip()[:-1]
+
+			response = json.loads(data.strip())
+			if "result" in response:
+				return True, response["result"]
+
+			elif "error" in response:
+				# something went wrong
+				self._logger.warn("Request to netconnectd went wrong: " + response["error"])
+				return False, response["error"]
+
+			else:
+				output = "Unknown response from netconnectd: {response!r}".format(response=response)
+				self._logger.warn(output)
+				return False, output
+
+		except Exception as e:
+			output = "Error while talking to netconnectd: {}".format(e)
+			self._logger.warn(output)
+			return False, output
+
+		finally:
+			sock.close()
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
