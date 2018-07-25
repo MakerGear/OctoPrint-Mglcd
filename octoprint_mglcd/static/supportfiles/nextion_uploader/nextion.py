@@ -25,7 +25,7 @@ import re
 e = "\xff\xff\xff"
 
 def getBaudrate(ser, fSize=None, checkModel=None):
-    for baudrate in (2400, 4800, 9600, 19200, 38400, 57600, 115200):
+    for baudrate in (115200, 2400, 4800, 9600, 19200, 38400, 57600):
 
         ser.baudrate = baudrate
         ser.timeout = 3000 / baudrate + .2

@@ -606,6 +606,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.displayConnected = False
 		self.tryToConnect = False
 		self.nextionSerial.close()
+		self.firmwareFlashingProgram = self._basefolder+"/static/supportfiles/nextion_uploader/nextion.py"
+		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0112.tft"
 		flashCommand = "python " + self.firmwareFlashingProgram + " " + self.firmwareLocation + " " + targetPort
 		if (self._execute(flashCommand)[0] == 0):
 			self.tryToConnect = True
@@ -704,8 +706,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		# self._logger.info(self._file_manager.list_files(path='nextion'))
 		self._printer.register_callback(self)
 		self.displayConnectionTimer.start()
-		self.firmwareFlashingProgram = self._basefolder+"/static/supportfiles/nextion_uploader/nextion.py"
-		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0109.tft"
+		
 		# self.populatePrintList()
 
 		# self.connect_to_display()
@@ -720,7 +721,6 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		# self._logger.info(netconnectd.get_api_commands())
 		# self._logger.info(netconnectd.on_api_command("refresh_wifi",""))
 		# self._logger.info(self._send_message("list_wifi",{}))
-		self.populateWifiList()
 
 	def connect_to_display(self):
 		if self.tryToConnect:
@@ -808,6 +808,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self._logger.info(self.nextionSerial.port)
 		self.connectedPort = self.nextionSerial.port
 		# self.nextionDisplay.nxWrite('touch_j')
+		self.populateWifiList()
+
 
 
 
@@ -908,6 +910,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		for clearPos in range (0,5):
 			self.nextionDisplay.nxWrite('wifilist.wifi{}.txt="{}"'.format(clearPos,('')))
 		lastPos = 5
+		if len(self.wifiList)<5:
+			lastPos = len(self.wifiList)
 		for wifiCount in range(0,lastPos):
 			try:
 				# self._logger.info(fileName)
@@ -917,6 +921,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 				wifiString = 'wifilist.wifi{}.txt="{}"'.format(i,(self.wifiList[wifiCount+j]))
+				# self._logger.info(wifiString)
 
 				self.nextionDisplay.nxWrite(wifiString)
 				# j += 1
@@ -971,6 +976,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 	def setQR(self):
 		# WIFI:T:WPA;S:network;P:password;;
+
+		pass
 
 
 
@@ -1425,6 +1432,33 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				self.populateWifiList()
 				return
 
+			if line == "button wifi refresh":
+				self.wifiListLocation = 0
+				self.currentPage = 'wifilist'
+				self.populateWifiList()
+				return
+
+			if line == "button ap start":
+				self._reset()
+
+			if line == "button ap stop":
+				self._stop_ap()
+
+			if line == "button network info":
+				self.nextionDisplay.nxWrite('messages.text0.txt="Getting info."')
+				self.nextionDisplay.nxWrite('messages.text1.txt=""')
+				currentStatus = self._get_status()
+
+				if len(currentStatus)>254:
+					self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus[0:253]))
+					if len(currentStatus)>508:
+						self.nextionDisplay.nxWrite('messages.text1.txt="{}"'.format(currentStatus[253:506]))
+				else:
+					self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus))
+
+
+
+
 			if "button password" in line:
 				password = line[16:]
 				self._logger.info(password)
@@ -1449,7 +1483,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 					self._logger.info(str(e))
 
 
-			
+
 
 
 			if "button file" in line:
