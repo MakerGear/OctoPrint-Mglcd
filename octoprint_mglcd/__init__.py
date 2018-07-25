@@ -455,6 +455,10 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.firmwareLocation = ""
 		self.buttonPressCount = 0
 		self.address = None
+		self.chosenSsid = ""
+		self.pendingAction = ""
+		self.confirmRequired = True
+		self.waitingForConfirm = False
 	
 	def initialize(self):
 		self.address = self._settings.get(["socket"])
@@ -701,7 +705,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self._printer.register_callback(self)
 		self.displayConnectionTimer.start()
 		self.firmwareFlashingProgram = self._basefolder+"/static/supportfiles/nextion_uploader/nextion.py"
-		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0108.tft"
+		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0109.tft"
 		# self.populatePrintList()
 
 		# self.connect_to_display()
@@ -902,7 +906,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		# else:
 		# 	lastPos = len(self.fileList-self.fileListLocation)
 		for clearPos in range (0,5):
-			self.nextionDisplay.nxWrite('wifilist.file{}.txt="{}"'.format(clearPos,('')))
+			self.nextionDisplay.nxWrite('wifilist.wifi{}.txt="{}"'.format(clearPos,('')))
 		lastPos = 5
 		for wifiCount in range(0,lastPos):
 			try:
@@ -912,7 +916,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				# fileNameString = 'files.file{}.txt="{}"'.format(i,(self.fileList[fileName][2]['shortName']))
 
 
-				wifiString = 'wifilist.file{}.txt="{}"'.format(i,(self.wifiList[wifiCount+j]))
+				wifiString = 'wifilist.wifi{}.txt="{}"'.format(i,(self.wifiList[wifiCount+j]))
 
 				self.nextionDisplay.nxWrite(wifiString)
 				# j += 1
@@ -965,6 +969,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 
+	def setQR(self):
+		# WIFI:T:WPA;S:network;P:password;;
 
 
 
@@ -1281,6 +1287,9 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				self.handshakeReceived()
 			if self.currentPage == 'home':
 				self.fileListLocation = 0
+			if self.currentPage == 'wifipassword':
+				self.nextionDisplay.nxWrite('wifipassword.header.txt="Connecting to : {}"'.format(self.chosenSsid))
+								
 
 		if "set" in str(line):
 			# self._logger.info("1")
@@ -1410,11 +1419,38 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				self.populatePrintList()
 				return
 
-			if line == "button wifilist":
+			if line == "button wifilist page":
 				self.wifiListLocation = 0
 				self.currentPage = 'wifilist'
 				self.populateWifiList()
 				return
+
+			if "button password" in line:
+				password = line[16:]
+				self._logger.info(password)
+				try:
+					self._configure_and_select_wifi(self.chosenSsid, password)
+				except Exception as e:
+					self._logger.info("Error while trying to connect to wifi: "+str(e))
+				else:
+					self.nextionDisplay.nxWrite('page home')
+
+			if "button wifi" in line:
+				self._logger.info(line)
+				pattern = ' [^\s]*$'
+				try:
+					wifiButton = (re.search(pattern, line)).group(0).strip()
+					if wifiButton.isdigit():
+						try:
+							self.chosenSsid = str(self.wifiList[int(wifiButton)+self.wifiListLocation])
+						except Exception as e:
+							self._logger.info(str(e))
+				except Exception as e:
+					self._logger.info(str(e))
+
+
+			
+
 
 			if "button file" in line:
 				self._logger.info(line)
