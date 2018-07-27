@@ -440,6 +440,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.displayConnectionTimer = octoprint.util.RepeatedTimer(self.interval, self.connect_to_display)
 		self.serialReceiveTimer = octoprint.util.RepeatedTimer(0.05, self.nextionTimer, daemon=True)
 		self.serialParseTimer = octoprint.util.RepeatedTimer(0.1, self.parseLog, daemon=True)
+		self.ipTimer = octoprint.util.RepeatedTimer(120, self.populateIpAddress)
 		self.currentPage = ''
 		self.files = {}
 		self.fileList = defaultdict(list)
@@ -713,7 +714,14 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 				
 
-
+	def populateIpAddress(self):
+		if self.displayConnected:
+			try:
+				ip = str(([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0]))
+			except socket.error as e:
+				self._logger.info("Socket exception: "+str(e))
+				ip = "No IP"
+			self.nextionDisplay.nxWrite('home.ip.txt="{}"'.format(ip))
 
 
 	def on_after_startup(self):
@@ -803,12 +811,13 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.nextionSerial.flushOutput()
 		self.nextionDisplay.nxWrite('home.hostname.txt="{}"'.format(socket.gethostname()))
 		self.nextionDisplay.nxWrite('home.name.txt="{}"'.format(str(octoprint.settings.Settings.get(octoprint.settings.settings(),["appearance", "name"])).strip('[\']')))
-		try:
-			ip = str(([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0]))
-		except socket.error as e:
-			self._logger.info("Socket exception: "+str(e))
-			ip = "No IP"
-		self.nextionDisplay.nxWrite('home.ip.txt="{}"'.format(ip))
+		# try:
+		# 	ip = str(([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0]))
+		# except socket.error as e:
+		# 	self._logger.info("Socket exception: "+str(e))
+		# 	ip = "No IP"
+		# self.nextionDisplay.nxWrite('home.ip.txt="{}"'.format(ip))
+		self.populateIpAddress()
 		self.nextionDisplay.nxWrite('home.status.txt="Status: LCD Connected"')
 		self._logger.info("LCD Firmware version:")
 		self.nextionDisplay.nxWrite('get info.version.txt')
@@ -824,6 +833,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.connectedPort = self.nextionSerial.port
 		# self.nextionDisplay.nxWrite('touch_j')
 		self.populateWifiList()
+		self.ipTimer.start()
 
 
 
