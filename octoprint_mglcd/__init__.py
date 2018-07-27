@@ -10,6 +10,7 @@ import socket
 import array
 import glob
 import copy
+import math
 from numbers import Number
 from threading import Thread
 from multiprocessing import Process
@@ -607,7 +608,20 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.tryToConnect = False
 		self.nextionSerial.close()
 		self.firmwareFlashingProgram = self._basefolder+"/static/supportfiles/nextion_uploader/nextion.py"
-		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0113.tft"
+
+
+		# try:
+		# 	allFiles = os.listdir(self._basefolder+"/static/supportfiles/nextion_uploader/")
+		# 	pattern = '*.tft$'
+		# 			try:
+		# 				tftFiles = re.search(pattern, allFiles)
+		# 				if len(tftFiles)>0:
+		# 					tftVersion
+
+
+		# 	tftFiles = allFiles.
+
+		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0114.tft"
 		flashCommand = "python " + self.firmwareFlashingProgram + " " + self.firmwareLocation + " " + targetPort
 		if (self._execute(flashCommand)[0] == 0):
 			self.tryToConnect = True
@@ -640,8 +654,9 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 						self.receiveLog.append(inByte)
 						# self._logger.info("receiveLog:")
 						# self._logger.info(self.receiveLog)
-			except:
+			except Exception as e:
 				self._logger.info("nextionTimer exception :"+str(sys.exc_info()[0]))
+				self._logger.info(str(e))
 				self.commFails += 1
 				if self.commFails >=20:
 					self.displayConnected = False
@@ -1183,9 +1198,16 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 					filePrintingString = self.currentPage + '.fileName.txt="{}"'.format(data['job']['file']['name'])
 
 				try:
-					fileTimeLeftString = self.currentPage + '.fileTime.txt="Print Time: {} min"'.format(int(data['job']['estimatedPrintTime']/60))
-				except:
+					tempTime = int(data['job']['estimatedPrintTime']/60)
+					if tempTime > 60:
+						tempTimeString = str(int(math.floor(tempTime/60)))+" hrs " + str(int(math.fmod(tempTime,60))) + " min"
+					else:
+						tempTimeString = str(tempTime) + " min"
+					fileTimeLeftString = self.currentPage + '.fileTime.txt="Print Time: {}"'.format(tempTimeString)
+				except Exception as e:
 					fileTimeLeftString = self.currentPage + '.fileTime.txt="Print Time: No Data"'
+					self._logger.info("Exception when populating file print time: "+str(e))
+
 
 
 				try:
@@ -1229,7 +1251,12 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 				try:
-					fileTimeLeftString = self.currentPage + '.fileTimeLeft.txt="Est.: {} min"'.format(int(data['progress']['printTimeLeft']/60))
+					tempTime = int(data['progress']['printTimeLeft']/60)
+					if tempTime > 60:
+						tempTimeString = str(int(math.floor(tempTime/60)))+" hrs " + str(int(math.fmod(tempTime,60))) + " min"
+					else:
+						tempTimeString = str(tempTime) + " min"
+					fileTimeLeftString = self.currentPage + '.fileTimeLeft.txt="Est.: {}"'.format(tempTimeString)
 				except:
 					fileTimeLeftString = self.currentPage + '.fileTimeLeft.txt="Est.: 0 min"'
 
