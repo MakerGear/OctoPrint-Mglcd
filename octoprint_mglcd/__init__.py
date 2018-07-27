@@ -621,7 +621,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 		# 	tftFiles = allFiles.
 
-		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0114.tft"
+		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0116.tft"
 		flashCommand = "python " + self.firmwareFlashingProgram + " " + self.firmwareLocation + " " + targetPort
 		if (self._execute(flashCommand)[0] == 0):
 			self.tryToConnect = True
@@ -1279,6 +1279,17 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			# self.getMessage()
 			# self._logger.info(self.nextionDisplay.nxRead())
 
+	def showMessage(self,message):
+		#this is a general function to switch to the messages page on the LCD and update the two text boxes.
+		self.nextionDisplay.nxWrite('messages.text0.txt="Message pending."')
+		self.nextionDisplay.nxWrite('messages.text1.txt=""')
+		self.nextionDisplay.nxWrite('page messages')
+		if len(message)>254:
+			self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(message[0:253]))
+			if len(message)>508:
+				self.nextionDisplay.nxWrite('messages.text1.txt="{}"'.format(message[253:506]))
+		else:
+			self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(message))
 
 
 
@@ -1467,21 +1478,26 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 			if line == "button ap start":
 				self._reset()
+				self._execute("/home/pi/.octoprint/scripts/resetRpi.sh")
+
 
 			if line == "button ap stop":
-				self._stop_ap()
+				self.nextionDisplay.nxWrite('page messages')
+				tempResponse = self._stop_ap()
+				self.showMessage(tempResponse)
 
 			if line == "button network info":
-				self.nextionDisplay.nxWrite('messages.text0.txt="Getting info."')
-				self.nextionDisplay.nxWrite('messages.text1.txt=""')
+				# self.nextionDisplay.nxWrite('messages.text0.txt="Getting info."')
+				# self.nextionDisplay.nxWrite('messages.text1.txt=""')
 				currentStatus = self._get_status()
 
-				if len(currentStatus)>254:
-					self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus[0:253]))
-					if len(currentStatus)>508:
-						self.nextionDisplay.nxWrite('messages.text1.txt="{}"'.format(currentStatus[253:506]))
-				else:
-					self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus))
+				self.showMessage(currentStatus)
+				# if len(currentStatus)>254:
+				# 	self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus[0:253]))
+				# 	if len(currentStatus)>508:
+				# 		self.nextionDisplay.nxWrite('messages.text1.txt="{}"'.format(currentStatus[253:506]))
+				# else:
+				# 	self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus))
 
 
 
@@ -1489,12 +1505,17 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			if "button password" in line:
 				password = line[16:]
 				self._logger.info(password)
+				connectResponse = "Connection failed."
 				try:
-					self._configure_and_select_wifi(self.chosenSsid, password)
+					connectResponse = self._configure_and_select_wifi(self.chosenSsid, password)
 				except Exception as e:
 					self._logger.info("Error while trying to connect to wifi: "+str(e))
-				else:
-					self.nextionDisplay.nxWrite('page home')
+					connectResponse = "Error while trying to connect to wifi: "+str(e)
+				# else:
+					# self.nextionDisplay.nxWrite('page home')
+					# connectResponse = "Connection failed."
+				# self.showMessage(connectResponse)
+
 
 			if "button wifi" in line:
 				self._logger.info(line)
@@ -1740,12 +1761,16 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		flag, content = self._send_message("start_wifi", dict())
 		if not flag:
 			raise RuntimeError("Error while selecting wifi: " + content)
+		return content
+		
 
 	def _forget_wifi(self):
 		payload = dict()
 		flag, content = self._send_message("forget_wifi", payload)
 		if not flag:
 			raise RuntimeError("Error while forgetting wifi: " + content)
+		return content
+
 
 	def _reset(self):
 		payload = dict()
@@ -1764,6 +1789,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		flag, content = self._send_message("stop_ap", payload)
 		if not flag:
 			raise RuntimeError("Error while stopping ap: " + content)
+		return content
 
 	def _send_message(self, message, data):
 		obj = dict()
