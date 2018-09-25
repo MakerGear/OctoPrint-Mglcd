@@ -1380,7 +1380,11 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			splitLine = line.split(" ")
 			if splitLine[1] in ("x0", "x1", "y", "z", "t0", "t1"):
 				axis = list(splitLine[1])[0]
-				distance = float(splitLine[3])
+				try:
+					distance = float(splitLine[3])
+				except IndexError:
+					distance = 0
+
 
 				if splitLine[2] == "negative":
 					direction = -1
