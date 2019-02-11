@@ -461,6 +461,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.pendingAction = ""
 		self.confirmRequired = True
 		self.waitingForConfirm = False
+		self.rrf = True
 	
 	def initialize(self):
 		self.address = self._settings.get(["socket"])
@@ -622,7 +623,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 		# 	tftFiles = allFiles.
 
-		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0116.tft"
+		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0117.tft"
 		flashCommand = "python " + self.firmwareFlashingProgram + " " + self.firmwareLocation + " " + targetPort
 		if (self._execute(flashCommand)[0] == 0):
 			self.tryToConnect = True
@@ -744,6 +745,9 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		# self._logger.info(netconnectd.get_api_commands())
 		# self._logger.info(netconnectd.on_api_command("refresh_wifi",""))
 		# self._logger.info(self._send_message("list_wifi",{}))
+
+	def on_shutdown(self):
+		self.nextionDisplay.nxWrite('page shuttingDown')
 
 	def connect_to_display(self):
 		if self.tryToConnect:
@@ -1363,7 +1367,14 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			if "bed:" in str(line):
 					m = re.search('(?<=:)\d+', str(line))
 					self._logger.info(m.group(0))
-					self._printer.set_temperature("bed",int(m.group(0)))
+					if not self.rrf:
+						self._printer.set_temperature("bed",int(m.group(0)))
+					else:
+						self._printer.commands("M140 P0 S"+int(m.group(0)),
+							"M140 P1 S"+(int(m.group(0))+2),
+							"M140 P2 S"+(int(m.group(0))+4),
+							"M140 P3 S"+(int(m.group(0))+4))
+
 					# self._logger.info(m.group(0))
 					# self._logger.info("regex caught")
 
@@ -1640,7 +1651,11 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 			if line == "button home all":
-				self._printer.home(("x","y","z"))
+				if not self.rrf:
+					self._printer.home(("x","y","z"))
+				else:
+					self._printer.commands("G28 XY",
+						"G28 Z")
 
 			if line == "button home x":
 				self._printer.home(("x"))
