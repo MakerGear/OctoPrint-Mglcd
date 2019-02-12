@@ -1370,10 +1370,10 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 					if not self.rrf:
 						self._printer.set_temperature("bed",int(m.group(0)))
 					else:
-						self._printer.commands("M140 P0 S"+int(m.group(0)),
-							"M140 P1 S"+(int(m.group(0))+2),
-							"M140 P2 S"+(int(m.group(0))+4),
-							"M140 P3 S"+(int(m.group(0))+4))
+						self._printer.commands(["M140 P0 S"+str(int(m.group(0))),
+							"M140 P1 S"+str(int(m.group(0))+2),
+							"M140 P2 S"+str(int(m.group(0))+4),
+							"M140 P3 S"+str(int(m.group(0))+4)])
 
 					# self._logger.info(m.group(0))
 					# self._logger.info("regex caught")
@@ -1654,8 +1654,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				if not self.rrf:
 					self._printer.home(("x","y","z"))
 				else:
-					self._printer.commands("G28 XY",
-						"G28 Z")
+					self._printer.commands(["G28 XY",
+						"G28 Z"])
 
 			if line == "button home x":
 				self._printer.home(("x"))
