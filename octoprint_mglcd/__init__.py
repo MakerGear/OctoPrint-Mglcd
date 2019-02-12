@@ -17,6 +17,7 @@ from multiprocessing import Process
 from octoprint.filemanager.destinations import FileDestinations
 from collections import deque
 from collections import defaultdict
+from collections import OrderedDict
 import octoprint.filemanager
 import octoprint.filemanager.util
 import octoprint.filemanager.storage
@@ -25,6 +26,7 @@ from octoprint.server import printer, fileManager, slicingManager, eventManager,
 from flask import jsonify, make_response
 import logging
 from octoprint.server import admin_permission
+import json
 
 
 
@@ -867,12 +869,13 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 	def populatePrintList(self):
 		self.files = self._file_manager.list_files(path=self.currentPath)
+		self._logger.info(self.files)
 		# for i in range(0, len(self.files)):
 		i = 0
 		tempFileList = defaultdict(list)
 		tempFolderList = defaultdict(list)
 		navigateUpList = defaultdict(list)
-		self.fileList = defaultdict(list)
+		self.fileList = OrderedDict()
 		if self.currentPath != '':
 			# self._logger.info("previousFolderList:")
 			# self._logger.info(self.previousFolderList)
@@ -883,7 +886,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 								{'type' : 'folder' }
 							]
 			i = 1
-		for file in self.files['local'].keys():
+		# for file in self.files['local'].keys():
+		for file in sorted(self.files['local'].keys(), key = lambda x: x.lower()):
 			if self.files['local'][file]['type'] == 'folder':
 				self.fileList[i] = [
 									{'name' : self.files['local'][file]['name'] },
@@ -895,7 +899,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				# self._logger.info(self._file_manager.split_path("", self.files['local'][file]['name']))
 
 		# i = 0
-		for file in self.files['local'].keys():
+		# for file in self.files['local'].keys():
+		for file in sorted(self.files['local'].keys(), key = lambda x: x.lower()):
 
 			if self.files['local'][file]['type'] == 'machinecode':
 				self.fileList[i] = [
