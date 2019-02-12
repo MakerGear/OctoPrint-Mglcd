@@ -421,7 +421,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 						octoprint.plugin.AssetPlugin,
 						octoprint.plugin.SimpleApiPlugin,
 						octoprint.plugin.EventHandlerPlugin,
-						octoprint.printer.PrinterCallback):
+						octoprint.printer.PrinterCallback,
+						octoprint.plugin.ShutdownPlugin):
 
 	##~~ SettingsPlugin mixin
 
@@ -747,7 +748,11 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		# self._logger.info(self._send_message("list_wifi",{}))
 
 	def on_shutdown(self):
-		self.nextionDisplay.nxWrite('page shuttingDown')
+		self._logger.info("Shutting down - trying to display shutdown info on LCD.")
+		try:
+			self.nextionDisplay.nxWrite('page shuttingDown')
+		except:
+			return
 
 	def connect_to_display(self):
 		if self.tryToConnect:
