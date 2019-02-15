@@ -941,6 +941,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 	def showWifiList(self):
 		j = self.wifiListLocation
 		i = 0
+		self._logger.info(str(len(self.wifiList))+" long; location: "+str(self.wifiListLocation))
 		# for fileName in self.fileList.keys():
 		# if len(self.fileList-self.fileListLocation) > 5:
 		# 	lastPos = 5
@@ -949,8 +950,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		for clearPos in range (0,5):
 			self.nextionDisplay.nxWrite('wifilist.wifi{}.txt="{}"'.format(clearPos,('')))
 		lastPos = 5
-		if len(self.wifiList)<5:
-			lastPos = len(self.wifiList)
+		if (len(self.wifiList)-j)<5:
+			lastPos = (len(self.wifiList) - j)
 		for wifiCount in range(0,lastPos):
 			try:
 				# self._logger.info(fileName)
@@ -961,7 +962,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 				wifiString = 'wifilist.wifi{}.txt="{}"'.format(i,(self.wifiList[wifiCount+j]))
 				# self._logger.info(wifiString)
-
+				self._logger.info("wifiCount: "+str(wifiCount)+" ; wifiString: "+wifiString)
 				self.nextionDisplay.nxWrite(wifiString)
 				# j += 1
 				i += 1
@@ -1562,6 +1563,21 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 							self.chosenSsid = str(self.wifiList[int(wifiButton)+self.wifiListLocation])
 						except Exception as e:
 							self._logger.info(str(e))
+
+					if wifiButton == "left":
+						if self.wifiListLocation >= 2:
+							self.wifiListLocation -= 2
+						else:
+							self.wifiListLocation = 0
+						self.showWifiList()
+
+
+					if wifiButton == "right":
+						if self.wifiListLocation < len(self.wifiList) - 4:
+							self.wifiListLocation += 2
+						else:
+							self.wifiListLocation = len(self.wifiList) - 3
+						self.showWifiList()
 				except Exception as e:
 					self._logger.info(str(e))
 
@@ -1574,7 +1590,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				pattern = ' [^\s]*$'
 				try:
 					fileButton = (re.search(pattern, line)).group(0).strip()
-				# self._logger.info(fileButton)
+					# self._logger.info(fileButton)
 
 				
 					# if fileButton == 'page':
@@ -1645,7 +1661,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 					if fileButton == "right":
-						if self.fileListLocation < len(self.fileList) - 3:
+						if self.fileListLocation < len(self.fileList) - 4:
 							self.fileListLocation += 2
 						else:
 							self.fileListLocation = len(self.fileList) - 3
