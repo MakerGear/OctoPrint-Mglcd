@@ -1,14 +1,16 @@
-# coding=utf-8
 from __future__ import absolute_import
 import serial
 import time
 import sys
 import threading
+import traceback
 import re
 import sched
 import socket
 import array
 import glob
+import copy
+import math
 from numbers import Number
 from threading import Thread
 from multiprocessing import Process
@@ -20,6 +22,11 @@ import octoprint.filemanager.util
 import octoprint.filemanager.storage
 import octoprint.slicing
 from octoprint.server import printer, fileManager, slicingManager, eventManager, NO_CONTENT
+from flask import jsonify, make_response
+import logging
+from octoprint.server import admin_permission
+
+
 
 
 ### (Don't forget to remove me)
@@ -408,7 +415,6 @@ class Nextion(object):
 		t.join()
 		return s 
 
-
 class NextionPlugin(octoprint.plugin.StartupPlugin,
 						octoprint.plugin.TemplatePlugin,
 						octoprint.plugin.SettingsPlugin,
@@ -434,16 +440,42 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.displayConnectionTimer = octoprint.util.RepeatedTimer(self.interval, self.connect_to_display)
 		self.serialReceiveTimer = octoprint.util.RepeatedTimer(0.05, self.nextionTimer, daemon=True)
 		self.serialParseTimer = octoprint.util.RepeatedTimer(0.1, self.parseLog, daemon=True)
+		self.ipTimer = octoprint.util.RepeatedTimer(120, self.populateIpAddress)
 		self.currentPage = ''
 		self.files = {}
 		self.fileList = defaultdict(list)
+		self.wifiList = defaultdict(list)
+		self.currentFolder = ''
+		self.currentPath = ''
+		self.previousFolderList = []
 		self.filamentInFile = 0.0
 		self.fileListLocation = 0
+		self.wifiListLocation = 0
 		self.connectedPort = ''
 		self.flashingFirmware = False
 		self.firmwareFlashingProgram = ""
 		self.firmwareLocation = ""
+		self.buttonPressCount = 0
+		self.address = None
+		self.chosenSsid = ""
+		self.pendingAction = ""
+		self.confirmRequired = True
+		self.waitingForConfirm = False
 	
+	def initialize(self):
+		self.address = self._settings.get(["socket"])
+
+	@property
+	def hostname(self):
+		hostname = self._settings.get(["hostname"])
+		if hostname:
+			return hostname
+		else:
+			import socket
+			return socket.gethostname() + ".local"
+
+
+
 	def serial_ports(self):
 		# With all credit to SO Thomas.
 		""" Lists serial port names
@@ -576,6 +608,21 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.displayConnected = False
 		self.tryToConnect = False
 		self.nextionSerial.close()
+		self.firmwareFlashingProgram = self._basefolder+"/static/supportfiles/nextion_uploader/nextion.py"
+
+
+		# try:
+		# 	allFiles = os.listdir(self._basefolder+"/static/supportfiles/nextion_uploader/")
+		# 	pattern = '*.tft$'
+		# 			try:
+		# 				tftFiles = re.search(pattern, allFiles)
+		# 				if len(tftFiles)>0:
+		# 					tftVersion
+
+
+		# 	tftFiles = allFiles.
+
+		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0116.tft"
 		flashCommand = "python " + self.firmwareFlashingProgram + " " + self.firmwareLocation + " " + targetPort
 		if (self._execute(flashCommand)[0] == 0):
 			self.tryToConnect = True
@@ -608,8 +655,9 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 						self.receiveLog.append(inByte)
 						# self._logger.info("receiveLog:")
 						# self._logger.info(self.receiveLog)
-			except:
+			except Exception as e:
 				self._logger.info("nextionTimer exception :"+str(sys.exc_info()[0]))
+				self._logger.info(str(e))
 				self.commFails += 1
 				if self.commFails >=20:
 					self.displayConnected = False
@@ -639,6 +687,10 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 			except Exception as e:
 				self._logger.info("xff parseLog exception: "+str(e))
+				self._logger.info(tempResponse)
+				traceback.print_exc()
+
+
 				
 
 		if '\n' in self.receiveLog:
@@ -657,9 +709,19 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			# 	self.logLock.release()
 			except Exception as e:
 				self._logger.info("n parseLog exception: "+str(e))
+				self._logger.info(tempLog)
+				traceback.print_exc()
+
 				
 
-
+	def populateIpAddress(self):
+		if self.displayConnected:
+			try:
+				ip = str(([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0]))
+			except socket.error as e:
+				self._logger.info("Socket exception: "+str(e))
+				ip = "No IP"
+			self.nextionDisplay.nxWrite('home.ip.txt="{}"'.format(ip))
 
 
 	def on_after_startup(self):
@@ -667,12 +729,21 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		# self._logger.info(self._file_manager.list_files(path='nextion'))
 		self._printer.register_callback(self)
 		self.displayConnectionTimer.start()
-		self.firmwareFlashingProgram = self._basefolder+"/static/supportfiles/nextion_uploader/nextion.py"
-		self.firmwareLocation = self._basefolder+"/static/supportfiles/nextion_uploader/m3-v3-0107.tft"
+		
 		# self.populatePrintList()
 
 		# self.connect_to_display()
 		# self._logger.info(octoprint.filemanager.storage.list_files(FileDestinations.LOCAL))
+		# netconnectdModule = self._plugin_manager.get_plugin("netconnectd")
+		# self._logger.info(netconnectd)
+		# netconnectd = NetconnectdSettingsPlugin.__init__()
+		# import netconnectd
+		# setattr(netconnectd, "_logger", self._logger)
+		# setattr(netconnectd, "_settings", self._settings)
+
+		# self._logger.info(netconnectd.get_api_commands())
+		# self._logger.info(netconnectd.on_api_command("refresh_wifi",""))
+		# self._logger.info(self._send_message("list_wifi",{}))
 
 	def connect_to_display(self):
 		if self.tryToConnect:
@@ -740,12 +811,13 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.nextionSerial.flushOutput()
 		self.nextionDisplay.nxWrite('home.hostname.txt="{}"'.format(socket.gethostname()))
 		self.nextionDisplay.nxWrite('home.name.txt="{}"'.format(str(octoprint.settings.Settings.get(octoprint.settings.settings(),["appearance", "name"])).strip('[\']')))
-		try:
-			ip = str(([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0]))
-		except socket.error as e:
-			self._logger.info("Socket exception: "+str(e))
-			ip = "No IP"
-		self.nextionDisplay.nxWrite('home.ip.txt="{}"'.format(ip))
+		# try:
+		# 	ip = str(([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0]))
+		# except socket.error as e:
+		# 	self._logger.info("Socket exception: "+str(e))
+		# 	ip = "No IP"
+		# self.nextionDisplay.nxWrite('home.ip.txt="{}"'.format(ip))
+		self.populateIpAddress()
 		self.nextionDisplay.nxWrite('home.status.txt="Status: LCD Connected"')
 		self._logger.info("LCD Firmware version:")
 		self.nextionDisplay.nxWrite('get info.version.txt')
@@ -760,6 +832,9 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self._logger.info(self.nextionSerial.port)
 		self.connectedPort = self.nextionSerial.port
 		# self.nextionDisplay.nxWrite('touch_j')
+		self.populateWifiList()
+		self.ipTimer.start()
+
 
 
 
@@ -770,23 +845,121 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		else:
 			return longName
 
+
+	def navigateFolderUp(self):
+		try:
+			tempPath = self.currentPath.split("/")
+			tempPath.pop()
+			self.currentPath = "/".join(tempPath)
+
+		except Exception as e:
+			self._logger.info("Error when trying to navigate up: "+str(e))
+
+
 	def populatePrintList(self):
-		self.files = self._file_manager.list_files(path='DISPLAY')
+		self.files = self._file_manager.list_files(path=self.currentPath)
 		# for i in range(0, len(self.files)):
 		i = 0
+		tempFileList = defaultdict(list)
+		tempFolderList = defaultdict(list)
+		navigateUpList = defaultdict(list)
+		self.fileList = defaultdict(list)
+		if self.currentPath != '':
+			# self._logger.info("previousFolderList:")
+			# self._logger.info(self.previousFolderList)
+			self.fileList[0] = [
+								{'name' : 'up' },
+								{'path' : '' },
+								{'shortName' : '..' },
+								{'type' : 'folder' }
+							]
+			i = 1
 		for file in self.files['local'].keys():
-			self.fileList[i] = [{'name' : self.files['local'][file]['name']},
-			{'path' : self.files['local'][file]['path']},
-			{'shortName' : self.shortenFileName(self.files['local'][file]['name'])}]
-			i += 1
+			if self.files['local'][file]['type'] == 'folder':
+				self.fileList[i] = [
+									{'name' : self.files['local'][file]['name'] },
+									{'path' : self.files['local'][file]['path'] },
+									{'shortName' : self.shortenFileName(self.files['local'][file]['name']) + "/" },
+									{'type' : self.files['local'][file]['type'] }
+									]
+				i += 1
+				# self._logger.info(self._file_manager.split_path("", self.files['local'][file]['name']))
+
+		# i = 0
+		for file in self.files['local'].keys():
+
+			if self.files['local'][file]['type'] == 'machinecode':
+				self.fileList[i] = [
+									{'name' : self.files['local'][file]['name'] },
+									{'path' : self.files['local'][file]['path'] },
+									{'shortName' : self.shortenFileName(self.files['local'][file]['name']) },
+									{'type' : self.files['local'][file]['type'] }
+								]
+				i += 1
+				# self._logger.info(self._file_manager.split_path("", self.files['local'][file]['name']))
+
 			# self._logger.info([self.files['local'][file]['name'], self.files['local'][file]['path']])
 
+		# if len(tempFolderList) > 0:
+			# tempFolderList = navigateUpList + tempFolderList
+		# self._logger.info(tempFileList)
+		# self._logger.info(tempFolderList)
+		# self.fileList.append(tempFolderList)
+		# self.fileList.append(tempFileList)
+		# self.fileList = tempFolderList + tempFileList
 		self._logger.info(self.fileList)
 		self.showFileList()
 
 
+	def populateWifiList(self):
+		tempWifiList = self._send_message("list_wifi",{})
+		self.wifiList = defaultdict(list)
+		i = 0
+		for ssid in tempWifiList[1]:
+			self.wifiList[i] = tempWifiList[1][i]["ssid"]
+			i += 1
 
 
+		self._logger.info(self.wifiList)
+		self.showWifiList()
+
+
+	def showWifiList(self):
+		j = self.wifiListLocation
+		i = 0
+		# for fileName in self.fileList.keys():
+		# if len(self.fileList-self.fileListLocation) > 5:
+		# 	lastPos = 5
+		# else:
+		# 	lastPos = len(self.fileList-self.fileListLocation)
+		for clearPos in range (0,5):
+			self.nextionDisplay.nxWrite('wifilist.wifi{}.txt="{}"'.format(clearPos,('')))
+		lastPos = 5
+		if len(self.wifiList)<5:
+			lastPos = len(self.wifiList)
+		for wifiCount in range(0,lastPos):
+			try:
+				# self._logger.info(fileName)
+				# self._logger.info(self.fileList[fileName])
+				# self._logger.info(self.fileList[fileName][0]['name'])
+				# fileNameString = 'files.file{}.txt="{}"'.format(i,(self.fileList[fileName][2]['shortName']))
+
+
+				wifiString = 'wifilist.wifi{}.txt="{}"'.format(i,(self.wifiList[wifiCount+j]))
+				# self._logger.info(wifiString)
+
+				self.nextionDisplay.nxWrite(wifiString)
+				# j += 1
+				i += 1
+				# self._logger.info(fileNameString)
+				# self._logger.info(self.fileListLocation)
+			except KeyError as e:
+				self._logger.info("Encountered key error: " + str(e))
+				break
+
+			except Exception as e:
+				self._logger.info("More general exception in showWifiList: "+str(e))
+				break
 
 
 
@@ -826,16 +999,85 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 
+	def setQR(self):
+		# WIFI:T:WPA;S:network;P:password;;
+
+		pass
 
 
 
-
+	def on_settings_save(self, data):
+		octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
+		self.address = self._settings.get(["socket"])
 
 	def get_settings_defaults(self):
 		return dict(
-			# put your plugin's default settings here
+			socket="/var/run/netconnectd.sock",
+			hostname=None,
+			timeout=10
 		)
 
+	def get_template_configs(self):
+		return [
+			dict(type="settings", name="Network connection")
+		]
+
+
+	def get_api_commands(self):
+		return dict(
+			start_ap=[],
+			stop_ap=[],
+			refresh_wifi=[],
+			configure_wifi=[],
+			forget_wifi=[],
+			reset=[]
+		)
+	def is_api_adminonly(self):
+		return True
+
+	def on_api_get(self, request):
+		try:
+			status = self._get_status()
+			if status["wifi"]["present"]:
+				wifis = self._get_wifi_list()
+			else:
+				wifis = []
+		except Exception as e:
+			return jsonify(dict(error=str(e)))
+
+		return jsonify(dict(
+			wifis=wifis,
+			status=status,
+			hostname=self.hostname
+		))
+
+	def on_api_command(self, command, data):
+		if command == "refresh_wifi":
+			return jsonify(self._get_wifi_list(force=True))
+
+		# any commands processed after this check require admin permissions
+		if not admin_permission.can():
+			return make_response("Insufficient rights", 403)
+
+		if command == "configure_wifi":
+			if data["psk"]:
+				self._logger.info("Configuring wifi {ssid} and psk...".format(**data))
+			else:
+				self._logger.info("Configuring wifi {ssid}...".format(**data))
+
+			self._configure_and_select_wifi(data["ssid"], data["psk"], force=data["force"] if "force" in data else False)
+
+		elif command == "forget_wifi":
+			self._forget_wifi()
+
+		elif command == "reset":
+			self._reset()
+
+		elif command == "start_ap":
+			self._start_ap()
+
+		elif command == "stop_ap":
+			self._stop_ap()
 	##~~ AssetPlugin mixin
 
 	def get_assets(self):
@@ -966,9 +1208,16 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 					filePrintingString = self.currentPage + '.fileName.txt="{}"'.format(data['job']['file']['name'])
 
 				try:
-					fileTimeLeftString = self.currentPage + '.fileTime.txt="Print Time: {} min"'.format(int(data['job']['estimatedPrintTime']/60))
-				except:
+					tempTime = int(data['job']['estimatedPrintTime']/60)
+					if tempTime > 60:
+						tempTimeString = str(int(math.floor(tempTime/60)))+" hrs " + str(int(math.fmod(tempTime,60))) + " min"
+					else:
+						tempTimeString = str(tempTime) + " min"
+					fileTimeLeftString = self.currentPage + '.fileTime.txt="Print Time: {}"'.format(tempTimeString)
+				except Exception as e:
 					fileTimeLeftString = self.currentPage + '.fileTime.txt="Print Time: No Data"'
+					self._logger.info("Exception when populating file print time: "+str(e))
+
 
 
 				try:
@@ -1012,7 +1261,12 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 				try:
-					fileTimeLeftString = self.currentPage + '.fileTimeLeft.txt="Est.: {} min"'.format(int(data['progress']['printTimeLeft']/60))
+					tempTime = int(data['progress']['printTimeLeft']/60)
+					if tempTime > 60:
+						tempTimeString = str(int(math.floor(tempTime/60)))+" hrs " + str(int(math.fmod(tempTime,60))) + " min"
+					else:
+						tempTimeString = str(tempTime) + " min"
+					fileTimeLeftString = self.currentPage + '.fileTimeLeft.txt="Est.: {}"'.format(tempTimeString)
 				except:
 					fileTimeLeftString = self.currentPage + '.fileTimeLeft.txt="Est.: 0 min"'
 
@@ -1035,6 +1289,17 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			# self.getMessage()
 			# self._logger.info(self.nextionDisplay.nxRead())
 
+	def showMessage(self,message):
+		#this is a general function to switch to the messages page on the LCD and update the two text boxes.
+		self.nextionDisplay.nxWrite('messages.text0.txt="Message pending."')
+		self.nextionDisplay.nxWrite('messages.text1.txt=""')
+		self.nextionDisplay.nxWrite('page messages')
+		if len(message)>254:
+			self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(message[0:253]))
+			if len(message)>508:
+				self.nextionDisplay.nxWrite('messages.text1.txt="{}"'.format(message[253:506]))
+		else:
+			self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(message))
 
 
 
@@ -1064,7 +1329,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		line = line.rstrip()
 		# line = lineRaw
 		# self._logger.info(line)
-
+		# self._logger.info("previousFolderList:")
+		# self._logger.info(self.previousFolderList)
 		if "MAKERGEAR" in str(line):
 			self._logger.info("Handshake received.")
 			self.handshakeReceived()
@@ -1076,6 +1342,9 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 				self.handshakeReceived()
 			if self.currentPage == 'home':
 				self.fileListLocation = 0
+			if self.currentPage == 'wifipassword':
+				self.nextionDisplay.nxWrite('wifipassword.header.txt="Connecting to : {}"'.format(self.chosenSsid))
+								
 
 		if "set" in str(line):
 			# self._logger.info("1")
@@ -1100,6 +1369,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 
 		if "button" in line:
+			# self.buttonPressCount += 1
+			# self._logger.info("Button press count: "+str(self.buttonPressCount))
 			# if line == "button x negative":
 			# 	self._printer.jog(dict(x=-10), speed=2000)
 			# if line == "button x positive":
@@ -1108,10 +1379,19 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 			splitLine = line.split(" ")
 			if splitLine[1] in ("x0", "x1", "y", "z", "t0", "t1"):
+				axis = list(splitLine[1])[0]
+				try:
+					distance = float(splitLine[3])
+				except IndexError:
+					distance = 0
+
+
 				if splitLine[2] == "negative":
 					direction = -1
-				else:
+				elif splitLine[2] == "positive":
 					direction = 1
+				elif splitLine[2] == "babystep":
+					self._printer.commands("M290 Z"+str(distance))
 
 				if splitLine[1] in ("x0", "t0"):
 					self._printer.change_tool("tool0")
@@ -1122,8 +1402,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 					self._printer.extrude(int(splitLine[2]))
 					return
 
-				axis = list(splitLine[1])[0]
-				distance = float(splitLine[3])
+
 				if axis == "x":
 					speed = 2000
 				elif axis == "y":
@@ -1193,49 +1472,166 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 			# 	self._printer.extrude(5)
 
 			if line == "button file page":
+				self.fileListLocation = 0
+				self.currentPage = 'fileList'
+				self.currentFolder = ''
 				self.populatePrintList()
+				return
+
+			if line == "button wifilist page":
+				self.wifiListLocation = 0
+				self.currentPage = 'wifilist'
+				self.populateWifiList()
+				return
+
+			if line == "button wifi refresh":
+				self.wifiListLocation = 0
+				self.currentPage = 'wifilist'
+				self.populateWifiList()
+				return
+
+			if line == "button ap start":
+				self._reset()
+				self._execute("/home/pi/.octoprint/scripts/resetRpi.sh")
+
+
+			if line == "button ap stop":
+				self.nextionDisplay.nxWrite('page messages')
+				tempResponse = self._stop_ap()
+				self.showMessage(tempResponse)
+
+			if line == "button network info":
+				# self.nextionDisplay.nxWrite('messages.text0.txt="Getting info."')
+				# self.nextionDisplay.nxWrite('messages.text1.txt=""')
+				currentStatus = self._get_status()
+
+				self.showMessage(currentStatus)
+				# if len(currentStatus)>254:
+				# 	self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus[0:253]))
+				# 	if len(currentStatus)>508:
+				# 		self.nextionDisplay.nxWrite('messages.text1.txt="{}"'.format(currentStatus[253:506]))
+				# else:
+				# 	self.nextionDisplay.nxWrite('messages.text0.txt="{}"'.format(currentStatus))
+
+
+
+
+			if "button password" in line:
+				password = line[16:]
+				self._logger.info(password)
+				connectResponse = "Connection failed."
+				try:
+					connectResponse = self._configure_and_select_wifi(self.chosenSsid, password)
+				except Exception as e:
+					self._logger.info("Error while trying to connect to wifi: "+str(e))
+					connectResponse = "Error while trying to connect to wifi: "+str(e)
+				# else:
+					# self.nextionDisplay.nxWrite('page home')
+					# connectResponse = "Connection failed."
+				# self.showMessage(connectResponse)
+
+
+			if "button wifi" in line:
+				self._logger.info(line)
+				pattern = ' [^\s]*$'
+				try:
+					wifiButton = (re.search(pattern, line)).group(0).strip()
+					if wifiButton.isdigit():
+						try:
+							self.chosenSsid = str(self.wifiList[int(wifiButton)+self.wifiListLocation])
+						except Exception as e:
+							self._logger.info(str(e))
+				except Exception as e:
+					self._logger.info(str(e))
+
+
+
+
 
 			if "button file" in line:
 				self._logger.info(line)
 				pattern = ' [^\s]*$'
-				fileButton = (re.search(pattern, line)).group(0).strip()
+				try:
+					fileButton = (re.search(pattern, line)).group(0).strip()
 				# self._logger.info(fileButton)
+
 				
-				if fileButton == 'page':
-					self.populatePrintList()
-					self.currentPage = 'fileList'
+					# if fileButton == 'page':
+					# 	self.populatePrintList()
+					# 	self.fileListLocation = 0
+					# 	self.currentPage = 'fileList'
 
-				if fileButton.isdigit():
-					# self._logger.info("fileButton isdigit")
-					self._logger.info(self.fileList)
-					try:
-						self.nextionDisplay.nxWrite('page printcontrols')
-						# self._printer.select_file(self._file_manager.path_in_storage('local', self.fileList[int(fileButton)][1]['path']), False)
-						self._printer.select_file((self._file_manager.sanitize_path('local',(self.fileList[int(fileButton)+self.fileListLocation][1]['path']))), False)
+					if fileButton.isdigit():
+						# self._logger.info("fileButton isdigit")
+						self._logger.info(self.previousFolderList)
+						# self._logger.info(self.fileList)
+						try:
+							# self._logger.info(self.fileList[int(fileButton)+self.fileListLocation][0]['name'])
+							# self._logger.info(self.fileList[int(fileButton)+self.fileListLocation][1]['path'])
+							# self._logger.info(self.fileList[int(fileButton)+self.fileListLocation][2]['shortName'])
+							# self._logger.info(self.fileList[int(fileButton)+self.fileListLocation][3]['type'])
+							# self._logger.info(self.fileList[int(fileButton)+self.fileListLocation][2]['shortName'])
 
-					except KeyError as e:
-						self._logger.info("Keyerror when selecting file: "+str(e))
+							# self._logger.info(self.fileList[int(fileButton)+self.fileListLocation][0]['type'])
 
-					except Exception as e:
-						self._logger.info("General exception when selecting file: "+str(e))
+							if self.fileList[int(fileButton)+self.fileListLocation][3]['type'] == 'folder':
+								if self.fileList[int(fileButton)+self.fileListLocation][0]['name'] == 'up':
+									self.navigateFolderUp()
+									self.populatePrintList()
+									# self.previousFolderList.append(self.currentFolder)
+									# self.previousFolderList = list(self.previousFolderList).append(self.currentFolder)
+									# self._logger.info("previousFolderList:")
+									# self._logger.info(self.previousFolderList)
+								else:
+									self.currentFolder = self.fileList[int(fileButton)+self.fileListLocation][1]['path']
+									self.currentPath = self.fileList[int(fileButton)+self.fileListLocation][1]['path']
+									self.fileListLocation = 0
+									self.populatePrintList()
+								# self.previousFolderList.pop()
+								# self._logger.info(self.currentFolder)
 
 
 
-				if fileButton == "left":
-					if self.fileListLocation >= 2:
-						self.fileListLocation -= 2
-					else:
-						self.fileListLocation = 0
-					self.showFileList()
+							else:
+								self._printer.select_file((self._file_manager.sanitize_path('local',(self.fileList[int(fileButton)+self.fileListLocation][1]['path']))), False)
+								self.nextionDisplay.nxWrite('page printcontrols')
+								self._logger.info(line)
+
+							# self._printer.select_file(self._file_manager.path_in_storage('local', self.fileList[int(fileButton)][1]['path']), False)
+
+						except KeyError as e:
+							self._logger.info("Keyerror when selecting file: "+str(e))
+							traceback.print_exc()
+							self._logger.info(line)
 
 
-				if fileButton == "right":
-					if self.fileListLocation < len(self.fileList) - 3:
-						self.fileListLocation += 2
-					else:
-						self.fileListLocation = len(self.fileList) - 3
-					self.showFileList()
 
+						except Exception as e:
+							self._logger.info("General exception when selecting file: "+str(e))
+							traceback.print_exc()
+							self._logger.info(line)
+
+
+
+
+
+					if fileButton == "left":
+						if self.fileListLocation >= 2:
+							self.fileListLocation -= 2
+						else:
+							self.fileListLocation = 0
+						self.showFileList()
+
+
+					if fileButton == "right":
+						if self.fileListLocation < len(self.fileList) - 3:
+							self.fileListLocation += 2
+						else:
+							self.fileListLocation = len(self.fileList) - 3
+						self.showFileList()
+				
+				except Exception as e:
+					self._logger.info(str(e))
 
 
 
@@ -1341,7 +1737,119 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 			# line = self.nextionSerial.readline()
 
+	def _get_wifi_list(self, force=False):
+		payload = dict()
+		if force:
+			self._logger.info("Forcing wifi refresh...")
+			payload["force"] = True
 
+		flag, content = self._send_message("list_wifi", payload)
+		if not flag:
+			raise RuntimeError("Error while listing wifi: " + content)
+
+		result = []
+		for wifi in content:
+			result.append(dict(ssid=wifi["ssid"], address=wifi["address"], quality=wifi["signal"], encrypted=wifi["encrypted"]))
+		return result
+
+	def _get_status(self):
+		payload = dict()
+
+		flag, content = self._send_message("status", payload)
+		if not flag:
+			raise RuntimeError("Error while querying status: " + content)
+
+		return content
+
+	def _configure_and_select_wifi(self, ssid, psk, force=False):
+		payload = dict(
+			ssid=ssid,
+			psk=psk,
+			force=force
+		)
+
+		flag, content = self._send_message("config_wifi", payload)
+		if not flag:
+			raise RuntimeError("Error while configuring wifi: " + content)
+
+		flag, content = self._send_message("start_wifi", dict())
+		if not flag:
+			raise RuntimeError("Error while selecting wifi: " + content)
+		return content
+		
+
+	def _forget_wifi(self):
+		payload = dict()
+		flag, content = self._send_message("forget_wifi", payload)
+		if not flag:
+			raise RuntimeError("Error while forgetting wifi: " + content)
+		return content
+
+
+	def _reset(self):
+		payload = dict()
+		flag, content = self._send_message("reset", payload)
+		if not flag:
+			raise RuntimeError("Error while factory resetting netconnectd: " + content)
+
+	def _start_ap(self):
+		payload = dict()
+		flag, content = self._send_message("start_ap", payload)
+		if not flag:
+			raise RuntimeError("Error while starting ap: " + content)
+
+	def _stop_ap(self):
+		payload = dict()
+		flag, content = self._send_message("stop_ap", payload)
+		if not flag:
+			raise RuntimeError("Error while stopping ap: " + content)
+		return content
+
+	def _send_message(self, message, data):
+		obj = dict()
+		obj[message] = data
+
+		import json
+		js = json.dumps(obj, encoding="utf8", separators=(",", ":"))
+
+		import socket
+		sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		sock.settimeout(self._settings.get_int(["timeout"]))
+		try:
+			sock.connect(self.address)
+			sock.sendall(js + '\x00')
+
+			buffer = []
+			while True:
+				chunk = sock.recv(16)
+				if chunk:
+					buffer.append(chunk)
+					if chunk.endswith('\x00'):
+						break
+
+			data = ''.join(buffer).strip()[:-1]
+
+			response = json.loads(data.strip())
+			if "result" in response:
+				return True, response["result"]
+
+			elif "error" in response:
+				# something went wrong
+				self._logger.warn("Request to netconnectd went wrong: " + response["error"])
+				return False, response["error"]
+
+			else:
+				output = "Unknown response from netconnectd: {response!r}".format(response=response)
+				self._logger.warn(output)
+				return False, output
+
+		except Exception as e:
+			output = "Error while talking to netconnectd: {}".format(e)
+			self._logger.warn(output)
+			return False, output
+
+		finally:
+			sock.close()
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
@@ -1356,4 +1864,3 @@ def __plugin_load__():
 	__plugin_hooks__ = {
 		"octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
 	}
-
