@@ -27,7 +27,7 @@ from flask import jsonify, make_response
 import logging
 from octoprint.server import admin_permission
 import json
-from . import nextionUploader as Uploader
+
 
 
 
@@ -126,7 +126,7 @@ class WaveForm(Component):
 		super(WaveForm, self).__init__(page,id,name)
 
 	def add(self,channel, value):
-		print((str(self.id)+":"+str(channel)+" => "+str(value)))
+		print(str(self.id)+":"+str(channel)+" => "+str(value))
 		self.page.nextion.nxWrite("add " + self.id + "," + channel + "," + value)
 
 class Gauge(Component):
@@ -288,7 +288,7 @@ class Nextion(object):
 
 
 	def setValue(self,id,value):
-		print((id+'.val="'+str(value)+'"'))
+		print(id+'.val="'+str(value)+'"')
 		s=self.nxWrite(id+'.val='+str(value))
 		if s[0]!=0x01:
 			raise ValueError(Nextion.getErrorMessage(s[0])+": id: "+id+" value:"+ value)
@@ -383,7 +383,7 @@ class Nextion(object):
 
 					if c!=0x00:        
 						if self.debug is True:
-							print(("\/ :"+str(c)+":"+str(len(s))+":"+str(count)))
+							print("\/ :"+str(c)+":"+str(len(s))+":"+str(count))
 
 						s.append(c)
 						if len(s)==cmax:
@@ -402,7 +402,7 @@ class Nextion(object):
 						else:
 							count=0
 						if self.debug is True:
-							print(("/\ :"+str(c)+":"+str(len(s))+":"+str(count)))
+							print("/\ :"+str(c)+":"+str(len(s))+":"+str(count))
 				except:
 					# self._logger.info(err)
 					# self._logger.info("Error when reading!")
@@ -736,7 +736,6 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 	def on_after_startup(self):
 		self._logger.info("Mglcd plugin loaded!")
-		self._logger.info("Executable: {}".format(str(sys.executable)))
 		# self._logger.info(self._file_manager.list_files(path='nextion'))
 		self._printer.register_callback(self)
 		self.displayConnectionTimer.start()
@@ -899,7 +898,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 							]
 			i = 1
 		# for file in self.files['local'].keys():
-		for file in sorted(list(self.files['local'].keys()), key = lambda x: x.lower()):
+		for file in sorted(self.files['local'].keys(), key = lambda x: x.lower()):
 			if self.files['local'][file]['type'] == 'folder':
 				self.fileList[i] = [
 									{'name' : self.files['local'][file]['name'] },
@@ -912,7 +911,7 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 
 		# i = 0
 		# for file in self.files['local'].keys():
-		for file in sorted(list(self.files['local'].keys()), key = lambda x: x.lower()):
+		for file in sorted(self.files['local'].keys(), key = lambda x: x.lower()):
 
 			if self.files['local'][file]['type'] == 'machinecode':
 				self.fileList[i] = [
@@ -942,14 +941,8 @@ class NextionPlugin(octoprint.plugin.StartupPlugin,
 		self.wifiList = defaultdict(list)
 		i = 0
 		for ssid in tempWifiList[1]:
-			tempSSID = tempWifiList[1][i]["ssid"]
-			if not tempSSID.isprintable() or "\x00" in tempSSID:
-				self._logger.info("tempSSID is not printable: {}".format(tempSSID))
-			else:
-				self.wifiList[i] = tempWifiList[1][i]["ssid"]
-				i += 1
-				self._logger.info("type of tempSSID: {}".format(str(type(tempSSID))))
-				self._logger.info("tempSSID is printable: {}".format(tempSSID))
+			self.wifiList[i] = tempWifiList[1][i]["ssid"]
+			i += 1
 
 
 		self._logger.info(self.wifiList)
